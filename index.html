@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forex Strategy Architect</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial/dist/chartjs-chart-financial.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom/dist/chartjs-plugin-zoom.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .chart-modal { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 100; padding: 1rem; backdrop-filter: blur(4px); }
+        .toolkit-item { cursor: grab; }
+        .toolkit-item:active { cursor: grabbing; }
+        .workspace-item { position: absolute; transition: box-shadow 0.2s; user-select: none; touch-action: none; min-width: 240px; }
+        .workspace-item:hover { box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.7); }
+        .indicator-drop-target { background-color: rgba(6, 182, 212, 0.2); border: 1px dashed #06b6d4; }
+        .ws-item-header { cursor: move; }
+        .tooltip { position: relative; display: inline-block; }
+        .tooltip .tooltiptext { visibility: hidden; background-color: #1f2937; color: #fff; text-align: left; border-radius: 6px; padding: 8px 12px; position: absolute; z-index: 1; bottom: 110%; left: 50%; transform: translateX(-50%); opacity: 0; transition: opacity 0.3s; width: max-content; font-size: 12px; pointer-events: none; }
+        .ws-item-header:hover .tooltiptext { visibility: visible; opacity: 1; }
+        .socket { width: 16px; height: 16px; border-radius: 50%; border: 2px solid #52525b; cursor: pointer; position: absolute; top: 50%; transform: translateY(-50%); transition: all 0.2s ease; }
+        .socket:hover, .socket.highlight { border-color: #a78bfa; transform: translateY(-50%) scale(1.2); }
+        .socket.input { background-color: #ec4899; left: -8px; }
+        .socket.output { background-color: #22d3ee; right: -8px; }
+        .stat-value { font-size: var(--stat-font-size, 0.8rem); transition: font-size 0.2s; }
+        .resizer-x { flex-shrink: 0; cursor: ew-resize; width: 5px; background-color: #1f2937; transition: background-color 0.2s; }
+        .resizer-x:hover { background-color: #06b6d4; }
+        .resizer-y { flex-shrink: 0; cursor: ns-resize; height: 5px; background-color: #1f2937; transition: background-color 0.2s; }
+        .resizer-y:hover { background-color: #06b6d4; }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 overflow-hidden h-screen">
+    <div class="flex h-full">
+        <!-- Left Panel -->
+        <div id="left-panel" class="h-full bg-gray-800 p-4 flex flex-col shadow-2xl flex-shrink-0" style="width: 20%; min-width: 250px;">
+            <div class="flex items-center space-x-3 pb-4 border-b border-gray-700">
+                <i data-lucide="shapes" class="w-8 h-8 text-cyan-400"></i><h1 class="text-xl font-bold text-white">Toolkit</h1>
+            </div>
+            <div id="toolkit" class="flex-grow overflow-y-auto space-y-1 pt-4"></div>
+            <div class="border-t border-gray-700 pt-4">
+                <h3 class="text-sm font-semibold text-gray-400 mb-2 px-2">Templates</h3>
+                <div id="templates-container" class="space-y-2">
+                    <select id="template-select" class="block w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white"></select>
+                    <div class="grid grid-cols-3 gap-2 mt-2">
+                        <button id="load-template-btn" class="w-full py-2 px-2 rounded-md text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-700">Load</button>
+                        <button id="import-template-btn" class="w-full py-2 px-2 rounded-md text-sm font-medium text-white bg-gray-600 hover:bg-gray-700">Import</button>
+                        <button id="export-template-btn" class="w-full py-2 px-2 rounded-md text-sm font-medium text-white bg-gray-600 hover:bg-gray-700">Export</button>
+                        <input type="file" id="import-template-input" class="hidden" accept=".json">
+                    </div>
+                </div>
+            </div>
+            <div class="border-t border-gray-700 pt-4 mt-auto">
+                <label for="csv-file" class="block text-sm font-medium text-gray-400">Load Data</label>
+                <input type="file" id="csv-file" accept=".csv" class="mt-1 block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:font-semibold file:bg-gray-600 file:text-white hover:file:bg-gray-500 cursor-pointer">
+                <p id="data-status" class="text-xs text-gray-500 mt-2">Loading initial sample data...</p>
+                <button id="run-backtest" class="w-full mt-4 py-2 px-4 rounded-md text-sm font-medium text-white bg-green-600 hover:bg-green-700">Run Backtest</button>
+            </div>
+        </div>
+        <div id="left-resizer" class="resizer-x"></div>
+        <!-- Workspace Panel -->
+        <div id="workspace-container" class="h-full bg-gray-900 p-4 flex flex-col flex-grow">
+            <div class="flex justify-between items-center pb-2">
+                <h2 class="text-xl font-bold text-white">Workspace</h2>
+                <div class="flex items-center space-x-2">
+                      <button id="optimize-btn" class="p-1.5 bg-purple-600 text-white rounded-md hover:bg-purple-500 tooltip"><i data-lucide="wand-2" class="w-4 h-4"></i><span class="tooltiptext !bottom-full !top-auto !mb-2">Optimize Strategy</span></button>
+                      <button id="save-template-btn" class="p-1.5 bg-gray-700 rounded-md hover:bg-gray-600 tooltip"><i data-lucide="save" class="w-4 h-4"></i><span class="tooltiptext !bottom-full !top-auto !mb-2">Save Workspace as Template</span></button>
+                      <button id="auto-layout-btn" class="p-1.5 bg-gray-700 rounded-md hover:bg-gray-600 tooltip"><i data-lucide="layout-grid" class="w-4 h-4"></i><span class="tooltiptext !bottom-full !top-auto !mb-2">Auto Layout</span></button>
+                </div>
+            </div>
+            <div id="workspace" class="flex-grow bg-gray-800/50 rounded-lg relative overflow-auto border border-gray-700">
+                <svg id="connector-svg" class="absolute top-0 left-0 w-full h-full pointer-events-none"></svg>
+                <div id="workspace-placeholder" class="text-center text-gray-500 h-full flex items-center justify-center pointer-events-none">Drag items to build your system.</div>
+            </div>
+        </div>
+        <div id="right-resizer" class="resizer-x"></div>
+        <!-- Right Panel -->
+        <div id="right-panel" class="h-full bg-gray-800 p-4 flex flex-col flex-shrink-0" style="width: 20%; min-width: 250px;">
+            <div id="stats-panel" class="flex-shrink-0">
+                <div class="flex justify-between items-center mb-1">
+                    <h3 class="text-sm font-semibold text-gray-400">Performance</h3>
+                    <div class="flex items-center space-x-1">
+                        <button id="font-size-down" class="p-0.5 bg-gray-700 rounded hover:bg-gray-600"><i data-lucide="minus" class="w-3 h-3"></i></button>
+                        <button id="font-size-up" class="p-0.5 bg-gray-700 rounded hover:bg-gray-600"><i data-lucide="plus" class="w-3 h-3"></i></button>
+                        <button id="toggle-stats" class="p-0.5 bg-gray-700 rounded hover:bg-gray-600"><i data-lucide="chevron-up" class="w-4 h-4"></i></button>
+                    </div>
+                </div>
+                <div id="stats-grid" class="grid grid-cols-2 gap-1 transition-all duration-300">
+                    <div class="bg-gray-900 p-1 rounded-lg text-center"><h4 class="text-xs text-gray-400">P/L</h4><p id="pnl" class="stat-value font-bold text-white">-</p></div>
+                    <div class="bg-gray-900 p-1 rounded-lg text-center"><h4 class="text-xs text-gray-400">Win Rate</h4><p id="winrate" class="stat-value font-bold text-white">-</p></div>
+                    <div class="bg-gray-900 p-1 rounded-lg text-center"><h4 class="text-xs text-gray-400">Trades</h4><p id="trades" class="stat-value font-bold text-white">-</p></div>
+                    <div class="bg-gray-900 p-1 rounded-lg text-center"><h4 class="text-xs text-gray-400">Profit Factor</h4><p id="profit-factor" class="stat-value font-bold text-white">-</p></div>
+                    <div class="bg-gray-900 p-1 rounded-lg text-center"><h4 class="text-xs text-gray-400">Max DD</h4><p id="max-drawdown" class="stat-value font-bold text-white">-</p></div>
+                    <div class="bg-gray-900 p-1 rounded-lg text-center"><h4 class="text-xs text-gray-400">Sharpe</h4><p id="sharpe-ratio" class="stat-value font-bold text-white">-</p></div>
+                    <div class="bg-gray-900 p-1 rounded-lg text-center col-span-2"><h4 class="text-xs text-gray-400">Avg W/L</h4><p id="avg-win-loss" class="stat-value font-bold text-white">-</p></div>
+                </div>
+            </div>
+            <div class="flex-grow flex flex-col min-h-0 space-y-2 mt-2">
+                <div id="chart-container" class="flex-grow bg-gray-900 rounded-lg shadow relative group min-h-0">
+                    <canvas id="backtestChart"></canvas>
+                    <canvas id="equityChart" class="hidden"></canvas>
+                    <div class="absolute top-2 left-2 flex items-center space-x-2 z-10">
+                         <div id="chart-type-toggle-main" class="flex space-x-1 bg-gray-900/50 p-1 rounded-md"></div>
+                         <div id="price-chart-type-toggle" class="flex space-x-1 bg-gray-900/50 p-1 rounded-md"></div>
+                    </div>
+                    <div class="absolute bottom-2 right-2 flex items-center space-x-2">
+                         <button id="reset-chart-btn" class="p-1.5 bg-gray-700/50 rounded-md hover:bg-gray-600 text-gray-400"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>
+                         <button id="toggle-trades-btn" class="p-1.5 bg-gray-700/50 rounded-md hover:bg-gray-600 text-gray-400"><i data-lucide="eye-off" class="w-4 h-4"></i></button>
+                         <button id="expand-chart-btn" class="p-1.5 bg-gray-700/50 rounded-md hover:bg-gray-600"><i data-lucide="expand" class="w-4 h-4"></i></button>
+                    </div>
+                </div>
+                <div id="v-resizer" class="resizer-y"></div>
+                <div id="trade-log-panel" class="flex-shrink-0 flex flex-col min-h-[100px]">
+                    <div class="flex justify-between items-center mb-1">
+                        <h3 class="text-sm font-semibold text-gray-400">Trade Log</h3>
+                        <button id="export-history-btn" class="p-1 bg-gray-700 rounded-md hover:bg-gray-600 tooltip"><i data-lucide="download" class="w-3 h-3"></i><span class="tooltiptext !bottom-full !top-auto !mb-2">Export History</span></button>
+                    </div>
+                    <div id="trade-log-container" class="flex-grow overflow-y-auto bg-gray-900 rounded-lg text-xs p-2">
+                          <p class="text-gray-500">No trades to display.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- Modals -->
+    <div id="chart-modal" class="bg-gray-900 bg-opacity-80 chart-modal hidden">
+        <div class="w-full h-full bg-gray-800 rounded-lg shadow-xl p-4 flex flex-col relative">
+            <div class="flex justify-between items-center mb-2">
+                <h3 class="text-lg font-bold text-white">Backtest Chart</h3>
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center space-x-2">
+                        <label for="trade-count-select" class="text-xs text-gray-400">Trades:</label>
+                        <select id="trade-count-select" class="bg-gray-900 text-xs rounded-md p-1 border border-gray-700">
+                            <option value="20">Last 20</option><option value="50">Last 50</option><option value="100">Last 100</option><option value="all">All</option>
+                        </select>
+                    </div>
+                   <div id="chart-type-toggle-modal" class="flex space-x-1 bg-gray-900 p-1 rounded-md z-20"></div>
+                    <button id="toggle-trades-modal-btn" class="p-1.5 bg-gray-700 rounded-md hover:bg-gray-600 text-gray-400"><i data-lucide="eye-off" class="w-4 h-4"></i></button>
+                   <button id="close-chart-modal-btn" class="p-2 bg-gray-700 rounded-full hover:bg-gray-600"><i data-lucide="x" class="w-5 h-5"></i></button>
+                </div>
+            </div>
+            <div id="modal-chart-info" class="flex-shrink-0 text-xs text-gray-400 p-2 bg-gray-900/50 rounded-md text-center">Hover over the chart to see candle details.</div>
+            <div class="flex-grow relative mt-2"><canvas id="modalBacktestChart"></canvas></div>
+        </div>
+    </div>
+     <div id="settings-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center z-50">
+          <div class="bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-lg">
+              <div class="flex justify-between items-center mb-4">
+                  <h3 id="settings-modal-title" class="text-lg font-bold text-white">Settings</h3>
+                  <button id="close-settings-modal-btn" class="p-1 rounded-full hover:bg-gray-700"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div id="settings-modal-body" class="space-y-2 max-h-[60vh] overflow-y-auto"></div>
+            <div id="settings-modal-actions" class="mt-4"></div>
+            <div class="mt-6 flex justify-end">
+                <button id="save-settings-btn" class="py-2 px-4 rounded-md text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-700">Save & Close</button>
+            </div>
+        </div>
+    </div>
+    <script type="module">
+        // --- CONFIG & INITIAL DATA ---
+        const initialCSVData = `Date Time,Open,High,Low,Close,Volume,Spread
+2025.09.11 19:45,3633.43,3635.63,3633.43,3634.83,1333,2
+2025.09.11 20:00,3634.83,3636.53,3633.03,3633.33,1293,2
+2025.09.11 20:15,3633.33,3633.63,3630.83,3631.23,1121,2
+2025.09.11 20:30,3631.23,3632.73,3629.23,3630.23,1542,2
+2025.09.11 20:45,3630.23,3630.53,3627.53,3628.33,1268,2
+2025.09.11 21:00,3628.33,3628.33,3622.03,3622.93,2140,2
+2025.09.11 21:15,3622.93,3624.03,3621.13,3621.53,1657,2
+2025.09.11 21:30,3621.53,3623.83,3621.53,3623.53,1223,2
+2025.09.11 21:45,3623.53,3626.13,3623.33,3625.53,1145,2
+2025.09.11 22:00,3625.53,3628.13,3625.23,3627.03,1166,2
+2025.09.11 22:15,3627.03,3627.73,3626.23,3627.43,830,2
+2025.09.11 22:30,3627.43,3628.63,3627.13,3628.13,670,2
+2025.09.11 22:45,3628.13,3628.13,3626.53,3626.93,578,2
+2025.09.11 23:00,3626.93,3627.33,3626.23,3626.33,528,2
+2025.09.11 23:15,3626.33,3627.03,3625.93,3626.93,410,2
+2025.09.11 23:30,3626.93,3627.73,3626.73,3627.43,344,2
+2025.09.11 23:45,3627.43,3627.53,3626.83,3626.93,214,2
+2025.09.12 00:00,3626.44,3626.98,3626.24,3626.51,432,2
+2025.09.12 00:15,3626.54,3627.13,3626.04,3626.18,473,2
+2025.09.12 00:30,3626.18,3626.18,3625.03,3625.33,654,2
+2025.09.12 00:45,3625.33,3627.43,3625.33,3627.13,695,2
+2025.09.12 01:00,3627.13,3627.23,3625.63,3626.13,724,2
+2c025.09.12 01:15,3626.13,3626.33,3624.13,3624.33,904,2
+2025.09.12 01:30,3624.33,3624.33,3622.53,3623.13,841,2
+2025.09.12 01:45,3623.13,3623.23,3621.53,3621.73,767,2
+2025.09.12 02:00,3621.73,3622.03,3620.53,3620.83,673,2
+2025.09.12 02:15,3620.83,3621.63,3620.13,3621.03,729,2
+2025.09.12 02:30,3621.03,3622.43,3621.03,3622.13,537,2
+2025.09.12 02:45,3622.13,3622.23,3621.13,3621.23,404,2
+2025.09.12 03:00,3621.23,3622.33,3621.03,3622.13,544,2
+2025.09.12 03:15,3622.13,3624.33,3622.13,3623.93,601,2
+2025.09.12 03:30,3623.93,3625.23,3623.93,3624.73,617,2
+2025.09.12 03:45,3624.73,3626.13,3624.73,3626.03,523,2
+2025.09.12 04:00,3626.03,3626.73,3625.73,3625.83,544,2
+2025.09.12 04:15,3625.83,3626.13,3624.93,3625.03,432,2
+2025.09.12 04:30,3625.03,3626.43,3625.03,3626.23,368,2
+2025.09.12 04:45,3626.23,3626.93,3626.03,3626.63,283,2
+2025.09.12 05:00,3626.63,3626.73,3625.93,3626.13,262,2
+2025.09.12 05:15,3626.13,3626.43,3625.73,3625.83,240,2
+2025.09.12 05:30,3625.83,3626.93,3625.83,3626.63,296,2
+2025.09.12 05:45,3626.63,3626.63,3625.93,3626.23,183,2
+2025.09.12 06:00,3626.23,3627.03,3626.23,3626.73,294,2
+2025.09.12 06:15,3626.73,3627.73,3626.73,3627.43,422,2
+2025.09.12 06:30,3627.43,3627.43,3626.63,3626.83,317,2
+2025.09.12 06:45,3626.83,3627.43,3626.73,3627.13,227,2
+2025.09.12 07:00,3627.13,3628.93,3627.13,3628.63,601,2
+2025.09.12 07:15,3628.63,3630.33,3628.43,3630.13,713,2
+2025.09.12 07:30,3630.13,3630.33,3629.23,3629.53,612,2
+2025.09.12 07:45,3629.53,3630.03,3628.93,3629.73,587,2
+2025.09.12 08:00,3629.73,3630.63,3629.53,3629.73,751,2
+2025.09.12 08:15,3629.73,3630.43,3629.03,3629.33,671,2
+2025.09.12 08:30,3629.33,3629.43,3627.33,3627.73,854,2
+2025.09.12 08:45,3627.73,3627.83,3625.63,3625.93,940,2
+2025.09.12 09:00,3625.93,3627.23,3625.23,3626.93,1035,2
+2025.09.12 09:15,3626.93,3626.93,3624.83,3625.33,899,2
+2025.09.12 09:30,3625.33,3625.63,3624.03,3624.23,808,2
+2025.09.12 09:45,3624.23,3624.43,3621.83,3622.13,943,2
+2025.09.12 10:00,3622.13,3623.03,3620.83,3622.73,1118,2
+2025.09.12 10:15,3622.73,3624.03,3622.33,3623.33,865,2
+2025.09.12 10:30,3623.33,3626.63,3623.33,3625.73,1031,2
+2025.09.12 10:45,3625.73,3627.43,3625.43,3627.03,919,2
+2025.09.12 11:00,3627.03,3630.13,3627.03,3629.33,1130,2
+2025.09.12 11:15,3629.33,3630.33,3628.73,3630.03,883,2
+2025.09.12 11:30,3630.03,3631.33,3629.83,3631.13,806,2
+2025.09.12 11:45,3631.13,3632.63,3630.63,3632.33,967,2
+2025.09.12 12:00,3630.93,3631.02,3626.83,3628.02,1663,2
+2025.09.12 12:15,3628.02,3630.95,3627.56,3630.13,1478,2
+2025.09.12 12:30,3630.13,3632.41,3629.81,3631.29,1235,2
+2025.09.12 12:45,3631.33,3632.73,3630.14,3632.44,1194,2
+2025.09.12 13:00,3632.44,3635.88,3632.44,3635.01,1545,2
+2025.09.12 13:15,3635.04,3635.34,3631.93,3632.18,1315,2
+2025.09.12 13:30,3632.18,3633.37,3631.12,3632.91,1201,2
+2025.09.12 13:45,3632.91,3633.82,3630.69,3631.01,1298,2
+2025.09.12 14:00,3631.01,3631.01,3626.87,3627.42,1351,2
+2025.09.12 14:15,3627.43,3630.91,3627.43,3630.34,1098,2
+2025.09.12 14:30,3630.34,3632.41,3629.56,3630.12,1503,2
+2025.09.12 14:45,3630.16,3633.91,3629.98,3633.91,1193,2
+2025.09.12 15:00,3633.91,3640.81,3633.91,3639.81,2374,2
+2025.09.12 15:15,3639.81,3642.44,3639.06,3642.31,2109,2
+2025.09.12 15:30,3642.31,3646.59,3641.51,3646.06,2772,2
+2025.09.12 15:45,3646.06,3646.77,3643.08,3643.83,2058,2
+2025.09.12 16:00,3643.83,3644.48,3636.21,3637.31,2962,2
+2025.09.12 16:15,3637.31,3640.73,3636.56,3639.84,2291,2
+2025.09.12 16:30,3639.84,3642.33,3638.38,3639.08,2306,2
+2025.09.12 16:45,3639.09,3639.36,3635.81,3636.96,1832,2
+2025.09.12 17:00,3636.96,3643.20,3636.96,3642.38,1780,2
+2025.09.12 17:15,3642.42,3643.51,3640.48,3640.88,1575,2
+2025.09.12 17:30,3640.88,3643.07,3640.13,3642.81,1276,2
+2025.09.12 17:45,3642.85,3643.91,3642.06,3642.11,1087,2
+2025.09.12 18:00,3642.12,3643.82,3641.13,3643.53,1234,2
+2025.09.12 18:15,3643.53,3644.88,3643.05,3644.42,1312,2
+2025.09.12 18:30,3644.42,3647.25,3644.30,3646.91,1690,2
+2025.09.12 18:45,3646.92,3647.03,3643.47,3644.44,1574,2
+2025.09.12 19:00,3644.48,3645.31,3642.53,3643.68,1439,2
+2025.09.12 19:15,3643.68,3647.08,3643.63,3646.80,1277,2
+2025.09.12 19:30,3646.80,3647.55,3645.88,3647.31,1191,2
+2025.09.12 19:45,3647.31,3649.65,3647.31,3648.71,1551,2
+`;
+        // --- GLOBAL STATE & CONFIG ---
+        let historicalData = [], latestBacktestResult = { tradeLog: [] };
+        let mainChart, equityChart, modalChart;
+        let chartType = 'price', priceChartType = 'candlestick', statsFontSize = 0.8;
+        let workspace = { nodes: {} }, workspaceTemplates = {};
+        let draggedItemData = null, activeDrag = {el: null}, activeSettings = null;
+        let connectorLine = { active: false }, showTradesOnChart = false, maxTradesToShow = 20;
+        
+        const TOOLKIT_CONFIG = {
+            indicators: {
+                ma: { name: "MA", params: [{ id: 'period', label: 'Period', value: 20, opt: { min: 5, max: 200, step: 1 } }] },
+                rsi: { name: "RSI", params: [{ id: 'period', label: 'Period', value: 14, opt: { min: 5, max: 50, step: 1 } }, { id: 'oversold', label: 'Oversold', value: 30, opt: { min: 10, max: 40, step: 1 } }, { id: 'overbought', label: 'Overbought', value: 70, opt: { min: 60, max: 90, step: 1 } } ]},
+                macd: { name: "MACD", params: [{ id: 'fast', label: 'Fast', value: 12, opt: { min: 5, max: 50, step: 1 } }, { id: 'slow', label: 'Slow', value: 26, opt: { min: 10, max: 100, step: 1 } }, { id: 'signal', label: 'Signal', value: 9, opt: { min: 3, max: 30, step: 1 } } ]},
+                bbands: { name: "BB", params: [{ id: 'period', label: 'Period', value: 20, opt: { min: 10, max: 100, step: 1 } }, { id: 'stddev', label: 'StdDev', value: 2, opt: { min: 1, max: 4, step: 0.1 } } ]},
+                stoch: { name: "Stoch", params: [{ id: 'k', label: '%K', value: 14, opt: { min: 5, max: 50, step: 1 } }, { id: 'd', label: '%D', value: 3, opt: { min: 2, max: 20, step: 1 } }, { id: 'smooth', label: 'Smooth', value: 3, opt: { min: 2, max: 20, step: 1 } } ]},
+                atr: { name: "ATR", params: [{ id: 'period', label: 'Period', value: 14, opt: { min: 5, max: 50, step: 1 } }] },
+                ichimoku: { name: "Ichimoku", params: [{id: 'tenkan', label: 'Tenkan', value: 9, opt: { min: 5, max: 30, step: 1 }},{id: 'kijun', label: 'Kijun', value: 26, opt: { min: 10, max: 60, step: 1 }},{id: 'senkouB', label: 'Senkou B', value: 52, opt: { min: 20, max: 120, step: 1 }} ]},
+                psar: { name: "Parabolic SAR", params: [{id: 'step', label: 'Step', value: 0.02, opt: { min: 0.01, max: 0.1, step: 0.01 }},{id: 'max', label: 'Max Step', value: 0.2, opt: { min: 0.1, max: 0.5, step: 0.05 }} ]},
+            }
+        };
+        const ICONS = { strategy: 'layers', indicator: 'trending-up', priceChart: 'candlestick-chart', lineChart: 'activity', heikinAshiChart: 'bar-chart-3', equityChart: 'line-chart', settings: 'settings-2', remove: 'x-circle', expand: 'expand', close: 'x', showTrades: 'eye', hideTrades: 'eye-off', autoLayout: 'layout-grid', resetZoom: 'refresh-cw', save: 'save', optimize: 'wand-2', download: 'download', import: 'upload', export: 'share-2' };
+        
+        const DOMElements = {};
+        ['left-panel', 'right-panel', 'left-resizer', 'right-resizer', 'v-resizer', 'stats-panel', 'stats-grid', 'toggle-stats', 'font-size-up', 'font-size-down', 'toolkit', 'workspace', 'connector-svg', 'workspace-placeholder', 'run-backtest', 'csv-file', 'data-status', 'chart-type-toggle-main', 'chart-type-toggle-modal', 'price-chart-type-toggle', 'backtestChart', 'equityChart', 'modalBacktestChart', 'chart-modal', 'expand-chart-btn', 'toggle-trades-btn', 'toggle-trades-modal-btn', 'trade-count-select', 'auto-layout-btn', 'reset-chart-btn', 'close-chart-modal-btn', 'settings-modal', 'settings-modal-title', 'settings-modal-body', 'settings-modal-actions', 'close-settings-modal-btn', 'save-settings-btn', 'template-select', 'load-template-btn', 'save-template-btn', 'import-template-btn', 'export-template-btn', 'import-template-input', 'trade-log-container', 'trade-log-panel', 'export-history-btn', 'modal-chart-info', 'optimize-btn'].forEach(id => DOMElements[id.replace(/-(\w)/g, (m, p1) => p1.toUpperCase())] = document.getElementById(id));
+
+        class ForexArchitect {
+            constructor() {
+                this.init();
+            }
+            init() {
+                this.createSampleTemplates();
+                this.populateToolkit();
+                this.populateTemplateSelector();
+                this.addEventListeners();
+                this.initResizers();
+                this.loadSelectedTemplate();
+                this.loadInitialData();
+            }
+            async loadInitialData() {
+                historicalData = this.parseCSV(initialCSVData);
+                this.updateDataStatus();
+                this.runBacktest();
+            }
+            updateDataStatus(message, type = 'info') {
+                const statusEl = DOMElements.dataStatus;
+                statusEl.textContent = message || `Loaded ${historicalData.length} data points.`;
+                statusEl.classList.remove('!text-red-400', '!text-green-400');
+                if (type === 'error') statusEl.classList.add('!text-red-400');
+                if (type === 'success') statusEl.classList.add('!text-green-400');
+            }
+            async handleFileUpload(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                const text = await file.text();
+                historicalData = this.parseCSV(text);
+                this.updateDataStatus();
+                this.runBacktest();
+                 const firstStrategy = Object.values(workspace.nodes).find(n => n.type === 'strategy');
+                if (firstStrategy) {
+                    const pair = this.detectPair(file.name);
+                    if(pair.pipDecimalPlaces) firstStrategy.pipDecimalPlaces = pair.pipDecimalPlaces;
+                    this.renderWorkspace();
+                }
+            }
+            detectPair(filename) {
+                const name = filename.toUpperCase();
+                if (name.includes('XAUUSD') || name.includes('GOLD')) return { pipDecimalPlaces: 2 };
+                if (name.includes('JPY')) return { pipDecimalPlaces: 3 };
+                return { pipDecimalPlaces: 5 }; // Default for most forex pairs
+            }
+            populateToolkit() {
+                const toolkitItems = [ { type: 'header', label: 'Logic' }, { type: 'item', itemType: 'strategy', label: 'Strategy Container', icon: ICONS.strategy }, { type: 'header', label: 'Indicators' }, ...Object.keys(TOOLKIT_CONFIG.indicators).map(key => ({ type: 'item', itemType: 'indicator', indicatorKey: key, label: TOOLKIT_CONFIG.indicators[key].name, icon: ICONS.indicator })) ];
+                DOMElements.toolkit.innerHTML = toolkitItems.map(item => {
+                    if (item.type === 'header') return `<h3 class="col-span-full text-sm font-semibold text-gray-400 mt-2 px-2">${item.label}</h3>`;
+                    return `<div class="toolkit-item flex items-center p-2 rounded-md hover:bg-gray-700" draggable="true" data-item-type="${item.itemType}" ${item.indicatorKey ? `data-indicator-key="${item.indicatorKey}"` : ''}><i data-lucide="${item.icon}" class="w-5 h-5 mr-2"></i><span class="text-sm">${item.label}</span></div>`;
+                }).join('');
+                const mainToggleHTML = `<button data-type="price" class="p-1.5 rounded-md bg-cyan-600 text-white"><i data-lucide="${ICONS.priceChart}" class="w-5 h-5"></i></button><button data-type="equity" class="p-1.5 rounded-md text-gray-400 hover:bg-gray-700"><i data-lucide="${ICONS.equityChart}" class="w-5 h-5"></i></button>`;
+                const priceChartToggleHTML = `<button data-type="candlestick" class="p-1.5 rounded-md bg-cyan-600 text-white"><i data-lucide="${ICONS.priceChart}" class="w-5 h-5"></i></button><button data-type="line" class="p-1.5 rounded-md text-gray-400 hover:bg-gray-700"><i data-lucide="${ICONS.lineChart}" class="w-5 h-5"></i></button><button data-type="heikin-ashi" class="p-1.5 rounded-md text-gray-400 hover:bg-gray-700"><i data-lucide="${ICONS.heikinAshiChart}" class="w-5 h-5"></i></button>`;
+                DOMElements.chartTypeToggleMain.innerHTML = mainToggleHTML;
+                DOMElements.chartTypeToggleModal.innerHTML = mainToggleHTML;
+                DOMElements.priceChartTypeToggle.innerHTML = priceChartToggleHTML;
+                lucide.createIcons();
+            }
+            addEventListeners() {
+                const ws = DOMElements.workspace;
+                DOMElements.toolkit.addEventListener('dragstart', e => {
+                    const target = e.target.closest('.toolkit-item');
+                    if (!target) return;
+                    draggedItemData = target.dataset;
+                    e.dataTransfer.setData('text/plain', 'dragging');
+                });
+                ws.addEventListener('dragover', e => {
+                    e.preventDefault();
+                    document.querySelectorAll('.indicator-drop-target').forEach(el => el.classList.remove('indicator-drop-target'));
+                    const targetStrategy = e.target.closest('.workspace-item[data-type="strategy"]');
+                    if (draggedItemData && draggedItemData.itemType === 'indicator' && targetStrategy) {
+                        targetStrategy.querySelector('.indicator-list').classList.add('indicator-drop-target');
+                    }
+                });
+                ws.addEventListener('drop', e => {
+                    e.preventDefault();
+                    document.querySelectorAll('.indicator-drop-target').forEach(el => el.classList.remove('indicator-drop-target'));
+                    if (!draggedItemData) return;
+                    const data = draggedItemData;
+                    const targetStrategyEl = e.target.closest('.workspace-item[data-type="strategy"]');
+                    if (data.itemType === 'indicator' && targetStrategyEl) this.addIndicatorToNode(targetStrategyEl.dataset.id, data.indicatorKey);
+                    else if (data.itemType === 'strategy') this.addNode(data, {x: e.offsetX, y: e.offsetY});
+                    draggedItemData = null;
+                });
+                ws.addEventListener('mousedown', e => {
+                    const header = e.target.closest('.ws-item-header');
+                    const socket = e.target.closest('.socket');
+                    if (header && !e.target.isContentEditable) {
+                        activeDrag.el = header.closest('.workspace-item');
+                        activeDrag.offX = e.clientX - activeDrag.el.offsetLeft;
+                        activeDrag.offY = e.clientY - activeDrag.el.offsetTop;
+                    } else if (socket && socket.classList.contains('output')) {
+                        const nodeEl = socket.closest('.workspace-item');
+                        connectorLine = { active: true, startNode: nodeEl.dataset.id, x1: e.clientX - ws.getBoundingClientRect().left, y1: e.clientY - ws.getBoundingClientRect().top };
+                    }
+                });
+                ws.addEventListener('dblclick', e => {
+                    const socket = e.target.closest('.socket.output');
+                    if (socket) {
+                        const node = workspace.nodes[socket.closest('.workspace-item').dataset.id];
+                        if (node?.output) {
+                            node.output = null;
+                            this.drawConnections();
+                        }
+                    }
+                });
+                window.addEventListener('mousemove', e => {
+                    if (activeDrag.el) {
+                        e.preventDefault();
+                        const x = e.clientX - activeDrag.offX;
+                        const y = e.clientY - activeDrag.offY;
+                        activeDrag.el.style.left = `${x}px`;
+                        activeDrag.el.style.top = `${y}px`;
+                        workspace.nodes[activeDrag.el.dataset.id].x = x;
+                        workspace.nodes[activeDrag.el.dataset.id].y = y;
+                        this.drawConnections();
+                    } else if (connectorLine.active) {
+                        const wsRect = ws.getBoundingClientRect();
+                        connectorLine.x2 = e.clientX - wsRect.left;
+                        connectorLine.y2 = e.clientY - wsRect.top;
+                        this.drawConnections();
+                    }
+                });
+                window.addEventListener('mouseup', (e) => {
+                    if (connectorLine.active) {
+                        const endTarget = e.target.closest('.socket.input');
+                        if (endTarget) {
+                            const endNodeEl = endTarget.closest('.workspace-item');
+                            const startNode = workspace.nodes[connectorLine.startNode];
+                            if(startNode && endNodeEl) startNode.output = endNodeEl.dataset.id;
+                        }
+                        connectorLine.active = false;
+                        this.drawConnections();
+                    }
+                    activeDrag.el = null;
+                });
+                
+                DOMElements.runBtn.addEventListener('click', () => this.runBacktest());
+                DOMElements.csvFileInput.addEventListener('change', (e) => this.handleFileUpload(e));
+                DOMElements.expandChartBtn.addEventListener('click', () => this.showChartModal(true));
+                DOMElements.closeChartModalBtn.addEventListener('click', () => this.showChartModal(false));
+                DOMElements.closeSettingsModalBtn.addEventListener('click', () => this.showSettingsModal(false));
+                DOMElements.saveSettingsBtn.addEventListener('click', () => this.saveSettings());
+                DOMElements.autoLayoutBtn.addEventListener('click', () => this.autoLayout());
+                DOMElements.toggleTradesBtn.addEventListener('click', () => this.toggleTrades());
+                DOMElements.toggleTradesModalBtn.addEventListener('click', () => this.toggleTrades());
+                DOMElements.exportHistoryBtn.addEventListener('click', () => this.exportTradeHistory());
+                DOMElements.resetChartBtn.addEventListener('click', () => {
+                    if(mainChart && mainChart.canvas.style.display !== 'none') mainChart.resetZoom();
+                    if(equityChart && equityChart.canvas.style.display !== 'none') equityChart.resetZoom();
+                    if(modalChart) modalChart.resetZoom();
+                });
+                DOMElements.tradeCountSelect.onchange = (e) => {
+                    maxTradesToShow = e.target.value === 'all' ? Infinity : parseInt(e.target.value);
+                    this.runBacktest(DOMElements.chartModal.classList.contains('hidden') === false);
+                };
+
+                DOMElements.loadTemplateBtn.addEventListener('click', () => this.loadSelectedTemplate());
+                DOMElements.saveTemplateBtn.addEventListener('click', () => this.saveWorkspaceAsTemplate());
+                DOMElements.exportTemplateBtn.addEventListener('click', () => this.exportSelectedTemplate());
+                DOMElements.importTemplateBtn.addEventListener('click', () => DOMElements.importTemplateInput.click());
+                DOMElements.importTemplateInput.addEventListener('change', (e) => this.importTemplates(e));
+                DOMElements.optimizeBtn.addEventListener('click', () => this.optimizeStrategy());
+
+                const setupToggle = (container, isMainChartToggle) => {
+                    container.addEventListener('click', e => {
+                        const button = e.target.closest('button');
+                        if (!button) return;
+                        const type = button.dataset.type;
+                        if (isMainChartToggle) {
+                            chartType = type;
+                            [DOMElements.chartTypeToggleMain, DOMElements.chartTypeToggleModal].forEach(toggle => this.updateToggleButtonStates(toggle, type));
+                            DOMElements.priceChartTypeToggle.style.display = chartType === 'price' ? 'flex' : 'none';
+                        } else {
+                            priceChartType = type;
+                            this.updateToggleButtonStates(DOMElements.priceChartTypeToggle, type);
+                        }
+                        this.runBacktest(DOMElements.chartModal.classList.contains('hidden') === false);
+                    });
+                };
+                setupToggle(DOMElements.chartTypeToggleMain, true);
+                setupToggle(DOMElements.chartTypeToggleModal, true);
+                setupToggle(DOMElements.priceChartTypeToggle, false);
+
+                DOMElements.toggleStatsBtn.addEventListener('click', () => {
+                    const grid = DOMElements.statsGrid;
+                    const icon = DOMElements.toggleStatsBtn.querySelector('i');
+                    grid.classList.toggle('hidden');
+                    icon.setAttribute('data-lucide', grid.classList.contains('hidden') ? 'chevron-down' : 'chevron-up');
+                    lucide.createIcons();
+                });
+                DOMElements.fontSizeUpBtn.addEventListener('click', () => this.changeStatsFontSize(0.1));
+                DOMElements.fontSizeDownBtn.addEventListener('click', () => this.changeStatsFontSize(-0.1));
+            }
+            changeStatsFontSize(delta) {
+                statsFontSize = Math.max(0.6, Math.min(1.2, statsFontSize + delta));
+                DOMElements.statsPanel.style.setProperty('--stat-font-size', `${statsFontSize.toFixed(2)}rem`);
+            }
+            updateToggleButtonStates(container, activeType) {
+                container.querySelectorAll('button').forEach(b => {
+                    b.classList.toggle('bg-cyan-600', b.dataset.type === activeType);
+                    b.classList.toggle('text-white', b.dataset.type === activeType);
+                    b.classList.toggle('text-gray-400', b.dataset.type !== activeType);
+                    b.classList.toggle('hover:bg-gray-700', b.dataset.type !== activeType);
+                });
+            }
+            parseCSV(text) {
+                return text.trim().split(/\r?\n/).slice(1).map(line => {
+                    const parts = line.split(',');
+                    if (parts.length < 7) return null;
+                    const date = new Date(parts[0].replace(/\./g, '-'));
+                    return { date, o: +parts[1], h: +parts[2], l: +parts[3], c: +parts[4], spread: +parts[6] || 0 };
+                }).filter(d => d && !isNaN(d.c) && d.date.toString() !== "Invalid Date" && d.date.getDay() !== 0 && d.date.getDay() !== 6);
+            }
+            addNode(data, {x,y}) {
+                const id = `${data.itemType}_${Date.now()}`;
+                const node = { id, type: data.itemType, name: "Strategy", x, y, output: null, spread: 2, stopLoss: 50, takeProfit: 100, lotSize: 0.01, tradeCooldown: 1, pipDecimalPlaces: 4, indicators: {}, conditions: [] };
+                workspace.nodes[id] = node;
+                this.renderWorkspace();
+            }
+            addIndicatorToNode(nodeId, indicatorKey) {
+                const node = workspace.nodes[nodeId];
+                if (node?.type === 'strategy') {
+                    const indiId = `${indicatorKey}_${Date.now()}`;
+                    node.indicators[indiId] = { id: indiId, key: indicatorKey, params: JSON.parse(JSON.stringify(TOOLKIT_CONFIG.indicators[indicatorKey].params)) };
+                    this.renderWorkspace();
+                }
+            }
+            removeIndicator(nodeId, indiId) {
+                const node = workspace.nodes[nodeId];
+                delete node.indicators[indiId];
+                node.conditions = node.conditions.filter(c => !c.a.startsWith(indiId) && !c.b.startsWith(indiId));
+                this.renderWorkspace();
+            }
+            renderWorkspace() {
+                DOMElements.workspacePlaceholder.style.display = Object.keys(workspace.nodes).length ? 'none' : 'flex';
+                DOMElements.workspace.querySelectorAll('.workspace-item').forEach(n => n.remove());
+                Object.values(workspace.nodes).forEach(node => DOMElements.workspace.appendChild(this.createNodeElement(node)));
+                lucide.createIcons();
+                DOMElements.workspace.querySelectorAll('[data-action]').forEach(btn => {
+                    btn.onclick = (e) => {
+                        const { action, nodeId, indiId } = e.currentTarget.dataset;
+                        if (action === 'settings') this.showSettingsModal(true, nodeId, indiId);
+                        else if (action === 'removeNode') this.removeNode(nodeId);
+                        else if (action === 'removeIndicator') this.removeIndicator(nodeId, indiId);
+                    };
+                });
+                DOMElements.workspace.querySelectorAll('.strategy-name').forEach(el => {
+                    el.addEventListener('blur', (e) => this.saveNodeName(e));
+                    el.addEventListener('keydown', (e) => { if(e.key === 'Enter') e.target.blur(); });
+                });
+                this.drawConnections();
+            }
+            createNodeElement(node) {
+                const el = document.createElement('div');
+                el.className = 'workspace-item bg-gray-700/50 p-3 rounded-lg border border-gray-600 flex flex-col';
+                el.style.left = `${node.x}px`; el.style.top = `${node.y}px`;
+                el.dataset.id = node.id; el.dataset.type = node.type;
+                if (node.type === 'strategy') {
+                    el.innerHTML = `<div class="ws-item-header flex justify-between items-center pb-2 mb-2 border-b border-gray-600 tooltip">
+                        <div class="flex items-center"><i data-lucide="${ICONS.strategy}" class="w-5 h-5 text-cyan-400 mr-2"></i><h4 class="font-bold text-sm strategy-name" contenteditable="true" maxlength="20" data-id="${node.id}">${node.name}</h4></div>
+                        <div class="flex items-center space-x-2"><button data-action="settings" data-node-id="${node.id}" class="text-gray-400 hover:text-white"><i data-lucide="${ICONS.settings}" class="w-4 h-4"></i></button><button data-action="removeNode" data-node-id="${node.id}" class="text-gray-400 hover:text-red-500"><i data-lucide="${ICONS.remove}" class="w-4 h-4"></i></button></div>
+                        <span class="tooltiptext">${this.generateStrategyTooltipContent(node)}</span></div>
+                        <div class="indicator-list p-2 rounded-md min-h-[4rem] space-y-2">
+                        ${Object.entries(node.indicators).map(([indiId, indi]) => `<div class="bg-gray-800 p-1 rounded-md flex items-center justify-between">
+                            <div class="flex items-center"><i data-lucide="${ICONS.indicator}" class="w-5 h-5 text-pink-400"></i><span class="text-xs ml-1">${TOOLKIT_CONFIG.indicators[indi.key].name}</span></div>
+                            <div class="flex items-center space-x-1"><button data-action="settings" data-node-id="${node.id}" data-indi-id="${indiId}" class="text-gray-400 hover:text-white"><i data-lucide="settings-2" class="w-3 h-3"></i></button><button data-action="removeIndicator" data-node-id="${node.id}" data-indi-id="${indiId}" class="text-gray-500 hover:text-red-400"><i data-lucide="x" class="w-4 h-4"></i></button></div>
+                        </div>`).join('') || '<p class="text-gray-500 text-xs text-center italic">Drop indicators here</p>'}</div>
+                        <div class="socket input"></div><div class="socket output"></div>`;
+                }
+                return el;
+            }
+            saveNodeName(e) {
+                const nodeEl = e.target.closest('.workspace-item');
+                if (nodeEl) workspace.nodes[nodeEl.dataset.id].name = e.target.textContent.slice(0, 20);
+            }
+            removeNode(id) {
+                 delete workspace.nodes[id];
+                 Object.values(workspace.nodes).forEach(node => { if (node.output === id) node.output = null; });
+                 this.renderWorkspace();
+            }
+            showSettingsModal(show, nodeId, indiId = null, mode = 'settings') {
+                if (show) {
+                    this.activeSettings = {nodeId, indiId, mode};
+                    DOMElements.saveSettingsBtn.style.display = 'block';
+                    DOMElements.saveSettingsBtn.textContent = 'Save & Close';
+
+                    if (mode === 'save_template' || mode === 'export_template') {
+                        const isExport = mode === 'export_template';
+                        DOMElements.settingsModalTitle.textContent = isExport ? 'Export Template' : 'Save Workspace as Template';
+                        const name = isExport ? nodeId : "My Custom Strategy";
+                        DOMElements.settingsModalBody.innerHTML = `<div><label for="template-name-input" class="block text-sm font-medium text-gray-400">Template Name</label><input type="text" id="template-name-input" value="${name}" class="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white"></div>`;
+                        DOMElements.saveSettingsBtn.textContent = isExport ? 'Export Template' : 'Save Template';
+                        DOMElements.settingsModalActions.innerHTML = '';
+                    } else if (mode === 'optimize') {
+                        this.setupOptimizationModal(nodeId);
+                    }
+                    else if (indiId) {
+                        const indicator = workspace.nodes[nodeId].indicators[indiId];
+                        DOMElements.settingsModalTitle.textContent = `${TOOLKIT_CONFIG.indicators[indicator.key].name} Settings`;
+                        DOMElements.settingsModalBody.innerHTML = indicator.params.map(p => `<div><label for="param-${p.id}" class="block text-sm font-medium text-gray-400">${p.label}</label><input type="number" step="0.01" id="param-${p.id}" value="${p.value}" class="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white"></div>`).join('');
+                        DOMElements.settingsModalActions.innerHTML = '';
+                    } else {
+                        const node = workspace.nodes[nodeId];
+                        const pipValue = Math.pow(10, -(node.pipDecimalPlaces || 4));
+                        DOMElements.settingsModalTitle.textContent = `Strategy: ${node.name}`;
+                        const riskManagementHTML = `<div class="grid grid-cols-3 gap-4 pt-4 mt-4 border-t border-gray-700">
+                                <div><label for="lot-size-input" class="block text-sm font-medium text-gray-400">Lot Size</label><input type="number" step="0.01" id="lot-size-input" value="${node.lotSize || 0.1}" class="mt-1 block w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-white"></div>
+                                <div><label for="spread-input" class="block text-sm font-medium text-gray-400">Spread (pips)</label><input type="number" id="spread-input" value="${node.spread || 0}" class="mt-1 block w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-white"></div>
+                                 <div><label for="pip-decimals-input" class="block text-sm font-medium text-gray-400">Pip Decimals</label><input type="number" id="pip-decimals-input" value="${node.pipDecimalPlaces || 4}" class="mt-1 block w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-white"></div>
+                                <div><label for="stop-loss-input" class="block text-sm font-medium text-gray-400">Stop Loss (pips)</label><input type="number" id="stop-loss-input" value="${node.stopLoss || 0}" class="mt-1 block w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-white"><span class="text-xs text-gray-500">$${((node.stopLoss || 0) * pipValue * 100000 * (node.lotSize || 0.1)).toFixed(2)}</span></div>
+                                 <div><label for="take-profit-input" class="block text-sm font-medium text-gray-400">Take Profit (pips)</label><input type="number" id="take-profit-input" value="${node.takeProfit || 0}" class="mt-1 block w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-white"><span class="text-xs text-gray-500">$${((node.takeProfit || 0) * pipValue * 100000 * (node.lotSize || 0.1)).toFixed(2)}</span></div>
+                                 <div><label for="cooldown-input" class="block text-sm font-medium text-gray-400">Cooldown (bars)</label><input type="number" id="cooldown-input" value="${node.tradeCooldown || 1}" class="mt-1 block w-full bg-gray-900 border border-gray-600 rounded-md py-2 px-3 text-white"></div>
+                            </div>`;
+                        DOMElements.settingsModalBody.innerHTML = (node.conditions.map((cond, index) => this.createConditionRow(node, cond, index)).join('') || '<p class="text-gray-400 text-sm">No conditions set.</p>') + riskManagementHTML;
+                        DOMElements.settingsModalActions.innerHTML = `<button id="add-condition-btn" class="w-full py-2 px-4 text-xs rounded-md font-medium text-cyan-300 bg-cyan-900/50 hover:bg-cyan-900/80 border border-dashed border-cyan-700">Add Condition</button>`;
+                        document.getElementById('add-condition-btn').onclick = () => this.addCondition(nodeId);
+                        this.attachConditionRowListeners(nodeId);
+                    }
+                    DOMElements.settingsModal.classList.add('flex');
+                    DOMElements.settingsModal.classList.remove('hidden');
+                    lucide.createIcons();
+                } else {
+                    DOMElements.settingsModal.classList.add('hidden');
+                    DOMElements.settingsModal.classList.remove('flex');
+                    this.activeSettings = null;
+                }
+            }
+            attachConditionRowListeners(nodeId) {
+                 DOMElements.settingsModalBody.querySelectorAll('.grid[data-index]').forEach(row => {
+                     const index = parseInt(row.dataset.index);
+                     row.querySelector('.remove-condition-btn').onclick = () => this.removeCondition(nodeId, index);
+                     row.querySelector('.condition-a').onchange = (e) => this.handleConditionChange(e, nodeId, index, 'a');
+                     row.querySelector('.condition-op').onchange = (e) => this.handleConditionChange(e, nodeId, index, 'op');
+                     row.querySelector('.condition-trigger').onchange = (e) => this.handleConditionChange(e, nodeId, index, 'trigger');
+                     const bSelect = row.querySelector('.condition-b');
+                     const bInput = row.querySelector('.condition-b-value');
+                     if (bSelect) bSelect.onchange = (e) => this.handleConditionChange(e, nodeId, index, 'b');
+                     if (bInput) {
+                         bInput.onchange = (e) => this.handleConditionChange(e, nodeId, index, 'b');
+                         bInput.onblur = (e) => { if (e.target.value.trim() === '') this.handleConditionChange(e, nodeId, index, 'b.revert'); };
+                     }
+                 });
+            }
+            handleConditionChange(event, nodeId, index, part) {
+                const node = workspace.nodes[nodeId];
+                if (!node || !node.conditions[index]) return;
+                const condition = node.conditions[index];
+                const value = event.target.value;
+                if (part === 'a') {
+                    condition.a = value;
+                    const bOptions = [...this.getIndicatorOutputs(node), { value: 'value', text: 'Value' }].filter(opt => opt.value !== condition.a);
+                    if (!bOptions.some(opt => opt.value === condition.b)) {
+                        condition.b = bOptions.find(o => o.value === 'close') ? 'close' : (bOptions[0]?.value || 'value');
+                        condition.bValue = (condition.b === 'value') ? 0 : null;
+                    }
+                } else if (part === 'op') condition.op = value;
+                else if (part === 'trigger') condition.trigger = value;
+                else if (part === 'b' || part === 'b.revert') {
+                    if (value === 'value') { condition.b = 'value'; condition.bValue = condition.bValue ?? 0; }
+                    else if (event.target.type === 'number') { condition.b = 'value'; condition.bValue = parseFloat(value) || 0; }
+                    else if (part === 'b.revert') { condition.b = 'close'; condition.bValue = null; }
+                    else { condition.b = value; condition.bValue = null; }
+                }
+                const newRowHTML = this.createConditionRow(node, condition, index);
+                const currentRowElement = DOMElements.settingsModalBody.querySelector(`[data-index="${index}"]`);
+                if (currentRowElement) {
+                    const activeElement = document.activeElement;
+                    const wasInput = activeElement && activeElement.tagName === 'INPUT';
+                    const activeElementClasses = activeElement ? Array.from(activeElement.classList) : [];
+                    currentRowElement.outerHTML = newRowHTML;
+                    const newRowElement = DOMElements.settingsModalBody.querySelector(`[data-index="${index}"]`);
+                    this.attachConditionRowListeners(nodeId);
+                    if (activeElementClasses.length > 0 && part !== 'b.revert') {
+                       const selector = activeElementClasses.map(c => `.${c}`).join('');
+                       const elementToFocus = newRowElement.querySelector(selector);
+                       if(elementToFocus) {
+                           elementToFocus.focus();
+                           if(wasInput && elementToFocus.tagName === 'INPUT') elementToFocus.selectionStart = elementToFocus.selectionEnd = elementToFocus.value.length;
+                       }
+                    }
+                }
+            }
+            addCondition(nodeId){
+                const node = workspace.nodes[nodeId];
+                node.conditions.push({ a: 'close', op: 'crosses_above', b: 'value', bValue: 0, trigger: 'buy' });
+                this.showSettingsModal(true, nodeId);
+            }
+            removeCondition(nodeId, index) {
+                const node = workspace.nodes[nodeId];
+                if (node && node.conditions[index]) {
+                    node.conditions.splice(index, 1);
+                    this.showSettingsModal(true, nodeId);
+                }
+            }
+            getIndicatorOutputs(node) {
+                const outputs = [{ value: 'close', text: 'Price' }];
+                Object.values(node.indicators).forEach(indi => {
+                    const config = TOOLKIT_CONFIG.indicators[indi.key];
+                    const paramsText = indi.params.map(p => p.value).join(',');
+                    if (['ma', 'rsi', 'atr', 'psar'].includes(indi.key)) outputs.push({ value: indi.id, text: `${config.name} (${paramsText})` });
+                    else if (indi.key === 'macd') {
+                        outputs.push({ value: `${indi.id}.macd`, text: `${config.name} Line` }, { value: `${indi.id}.signal`, text: `${config.name} Signal` }, { value: `${indi.id}.hist`, text: `${config.name} Hist` });
+                    } else if (indi.key === 'bbands') {
+                        outputs.push({ value: `${indi.id}.upper`, text: `${config.name} Upper` }, { value: `${indi.id}.middle`, text: `${config.name} Middle` }, { value: `${indi.id}.lower`, text: `${config.name} Lower` });
+                    } else if (indi.key === 'stoch') {
+                        outputs.push({ value: `${indi.id}.k`, text: `${config.name} %K` }, { value: `${indi.id}.d`, text: `${config.name} %D` });
+                    } else if (indi.key === 'ichimoku') {
+                        outputs.push({ value: `${indi.id}.tenkan`, text: `Tenkan` }, { value: `${indi.id}.kijun`, text: `Kijun` }, { value: `${indi.id}.senkouA`, text: `Senkou A` }, { value: `${indi.id}.senkouB`, text: `Senkou B` }, { value: `${indi.id}.chikou`, text: `Chikou` });
+                    }
+                });
+                return outputs;
+            }
+            createConditionRow(node, condition, index) {
+                const aOptions = this.getIndicatorOutputs(node);
+                const bOptions = [...aOptions, { value: 'value', text: 'Value' }].filter(opt => opt.value !== condition.a);
+                const createOptions = (options, selectedValue) => options.map(o => `<option value="${o.value}" ${o.value === selectedValue ? 'selected' : ''}>${o.text}</option>`).join('');
+                let bContent = condition.b === 'value' ? `<input type="number" class="w-full bg-gray-700 p-2 rounded text-xs condition-b-value" value="${condition.bValue ?? ''}">` : `<select class="w-full bg-gray-700 p-2 rounded text-xs condition-b">${createOptions(bOptions, condition.b)}</select>`;
+                return `<div class="grid grid-cols-12 gap-2 items-center" data-index="${index}">
+                            <select class="col-span-2 bg-gray-700 p-2 rounded text-xs condition-trigger"><option value="buy" ${condition.trigger === 'buy' ? 'selected' : ''}>BUY</option><option value="sell" ${condition.trigger === 'sell' ? 'selected' : ''}>SELL</option></select>
+                            <select class="col-span-4 bg-gray-700 p-2 rounded text-xs condition-a">${createOptions(aOptions, condition.a)}</select>
+                            <select class="col-span-2 bg-gray-700 p-2 rounded text-xs condition-op"><option value="crosses_above" ${condition.op === 'crosses_above' ? 'selected' : ''}>> (cross)</option><option value="crosses_below" ${condition.op === 'crosses_below' ? 'selected' : ''}>< (cross)</option><option value="greater_than" ${condition.op === 'greater_than' ? 'selected' : ''}>>=</option><option value="less_than" ${condition.op === 'less_than' ? 'selected' : ''}><=</option></select>
+                            <div class="col-span-3 condition-b-container">${bContent}</div><button class="col-span-1 text-red-500 remove-condition-btn"><i data-lucide="x-circle" class="w-4 h-4"></i></button>
+                        </div>`;
+            }
+            generateStrategyTooltipContent(node) {
+                if (!node || node.type !== 'strategy') return '';
+                const allOutputs = this.getIndicatorOutputs(node);
+                const getName = (id) => allOutputs.find(o => o.value === id)?.text || (id === 'value' ? 'Value' : 'N/A');
+                const condsToHtml = (trigger) => node.conditions.filter(c => c.trigger === trigger).map(c => `<li>${getName(c.a)} ${c.op.replace('_', ' ')} ${c.b === 'value' ? c.bValue : getName(c.b)}</li>`).join('');
+                const buyConditions = condsToHtml('buy'), sellConditions = condsToHtml('sell');
+                let html = `<strong>Indicators:</strong> ${Object.values(node.indicators).map(i => TOOLKIT_CONFIG.indicators[i.key].name).join(', ') || 'None'}`;
+                if (node.spread > 0) html += `<br><strong>Spread:</strong> ${node.spread} pips`;
+                if (node.stopLoss > 0) html += `<br><strong>SL:</strong> ${node.stopLoss} pips`;
+                if (node.takeProfit > 0) html += `<br><strong>TP:</strong> ${node.takeProfit} pips`;
+                if(buyConditions) html += `<strong class="text-green-400 mt-2 block">BUY WHEN:</strong><ul class="list-disc list-inside">${buyConditions}</ul>`;
+                if(sellConditions) html += `<strong class="text-red-400 mt-2 block">SELL WHEN:</strong><ul class="list-disc list-inside">${sellConditions}</ul>`;
+                return html || 'No conditions set.';
+            }
+            saveSettings() {
+                if(!this.activeSettings) return;
+                const {nodeId, indiId, mode} = this.activeSettings;
+                
+                if (mode === 'save_template') {
+                    const name = document.getElementById('template-name-input')?.value.trim();
+                    if (name) { workspaceTemplates[name] = JSON.parse(JSON.stringify(workspace)); this.populateTemplateSelector(); DOMElements.templateSelect.value = name; }
+                } else if (mode === 'export_template') {
+                    const newName = document.getElementById('template-name-input')?.value.trim();
+                    if (newName && workspaceTemplates[nodeId]) {
+                         const templateToExport = { [newName]: workspaceTemplates[nodeId] };
+                         const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(templateToExport, null, 2));
+                         const a = document.createElement('a');
+                         a.href = dataStr; a.download = `forex_architect_${newName.replace(/\s+/g, '_')}.json`; a.click();
+                    }
+                } else if(indiId){
+                    const indicator = workspace.nodes[nodeId].indicators[indiId];
+                    indicator.params.forEach(p => { p.value = parseFloat(document.getElementById(`param-${p.id}`).value) || p.value; });
+                } else {
+                    const node = workspace.nodes[nodeId];
+                    if(node) {
+                        node.lotSize = parseFloat(document.getElementById('lot-size-input').value) || 0.01;
+                        node.spread = parseFloat(document.getElementById('spread-input').value) || 0;
+                        node.stopLoss = parseFloat(document.getElementById('stop-loss-input').value) || 0;
+                        node.takeProfit = parseFloat(document.getElementById('take-profit-input').value) || 0;
+                        node.tradeCooldown = parseInt(document.getElementById('cooldown-input').value) || 1;
+                        node.pipDecimalPlaces = parseInt(document.getElementById('pip-decimals-input').value) || 4;
+                    }
+                }
+                
+                this.renderWorkspace(); 
+                this.showSettingsModal(false);
+                if (mode !== 'save_template' && mode !== 'export_template') this.runBacktest();
+            }
+            calculateBacktestStats(tradeSignals, priceData, strategyNode) {
+                 if (!priceData || priceData.length === 0) return { pnl: 0, winRate: 0, totalTrades: 0, profitFactor: 0, maxDrawdown: 0, sharpeRatio: 0, avgWin: 0, avgLoss: 0, maxWinStreak: 0, maxLossStreak: 0, equityData: [{ x: new Date().getTime(), y: 10000 }], tradeLog: [] };
+                const initialEquity = 10000;
+                const simulationResult = this._runSimulation(tradeSignals, priceData, strategyNode, initialEquity);
+                const stats = this._calculatePerformanceStats(simulationResult.tradeLog, initialEquity, simulationResult.equityData);
+                const result = { ...stats, equityData: simulationResult.equityData, totalTrades: tradeSignals.length, tradeLog: simulationResult.tradeLog };
+                latestBacktestResult = result;
+                return result;
+            }
+            _runSimulation(tradeSignals, priceData, strategyNode, initialEquity) {
+                const pipDecimalPlaces = strategyNode?.pipDecimalPlaces || 4;
+                const pipValue = Math.pow(10, -pipDecimalPlaces);
+                const lotSize = strategyNode?.lotSize || 0.1;
+                const lotMultiplier = 100000 * lotSize;
+                const spreadInPips = strategyNode?.spread || 0;
+                const spread = spreadInPips * pipValue;
+                const stopLossPips = strategyNode?.stopLoss || 0;
+                const takeProfitPips = strategyNode?.takeProfit || 0;
+                const tradeCooldown = strategyNode?.tradeCooldown || 1;
+
+                let equity = initialEquity;
+                const equityData = [{ x: priceData[0].date.getTime(), y: initialEquity }];
+                let peakEquity = initialEquity;
+                let tradeLog = [];
+                let barsSinceLastExit = Infinity;
+
+                let currentPosition = null;
+                const sortedSignals = tradeSignals.map(t => ({...t, date: t.entryDate.getTime()})).sort((a,b) => a.date - b.date);
+                let signalIndex = 0;
+
+                for(let i = 1; i < priceData.length; i++) {
+                    barsSinceLastExit++;
+                    const bar = priceData[i];
+                    let exited = false;
+
+                    if (currentPosition) {
+                        let pnl = 0;
+                        let exitPrice = 0;
+                        if (currentPosition.direction === 'BUY') {
+                            if (stopLossPips > 0 && bar.l <= currentPosition.stopLoss) { pnl = (currentPosition.stopLoss - currentPosition.entryPrice) * lotMultiplier; exitPrice = currentPosition.stopLoss; exited = true; }
+                            else if (takeProfitPips > 0 && bar.h >= currentPosition.takeProfit) { pnl = (currentPosition.takeProfit - currentPosition.entryPrice) * lotMultiplier; exitPrice = currentPosition.takeProfit; exited = true; }
+                        } else {
+                            if (stopLossPips > 0 && bar.h >= currentPosition.stopLoss) { pnl = (currentPosition.entryPrice - currentPosition.stopLoss) * lotMultiplier; exitPrice = currentPosition.stopLoss; exited = true; }
+                            else if (takeProfitPips > 0 && bar.l <= currentPosition.takeProfit) { pnl = (currentPosition.entryPrice - currentPosition.takeProfit) * lotMultiplier; exitPrice = currentPosition.takeProfit; exited = true; }
+                        }
+                        if (exited) { equity += pnl; tradeLog.push({ ...currentPosition, pnl, exitDate: bar.date, exitPrice }); currentPosition = null; barsSinceLastExit = 0; }
+                    }
+
+                    const todaysSignal = sortedSignals[signalIndex] && sortedSignals[signalIndex].date === bar.date.getTime() ? sortedSignals[signalIndex] : null;
+                    if (todaysSignal) {
+                         signalIndex++;
+                        if (currentPosition && currentPosition.direction !== todaysSignal.direction) {
+                            const pnl = (currentPosition.direction === 'BUY' ? (bar.c - currentPosition.entryPrice) : (currentPosition.entryPrice - bar.c)) * lotMultiplier;
+                            equity += pnl;
+                            tradeLog.push({ ...currentPosition, pnl, exitDate: bar.date, exitPrice: bar.c });
+                            currentPosition = null;
+                             barsSinceLastExit = 0;
+                        }
+                        if (!currentPosition && barsSinceLastExit >= tradeCooldown) {
+                            const entryPrice = todaysSignal.direction === 'BUY' ? bar.c + spread : bar.c;
+                            let sl = 0, tp = 0;
+                            if (todaysSignal.direction === 'BUY') {
+                                if (stopLossPips > 0) sl = entryPrice - stopLossPips * pipValue;
+                                if (takeProfitPips > 0) tp = entryPrice + takeProfitPips * pipValue;
+                            } else {
+                                if (stopLossPips > 0) sl = entryPrice + stopLossPips * pipValue;
+                                if (takeProfitPips > 0) tp = entryPrice - takeProfitPips * pipValue;
+                            }
+                            currentPosition = { lotSize, entryDate: bar.date, entryPrice, direction: todaysSignal.direction, stopLoss: sl, takeProfit: tp };
+                        }
+                    }
+                    let floatingPnl = currentPosition ? (currentPosition.direction === 'BUY' ? (bar.c + spread - currentPosition.entryPrice) : (currentPosition.entryPrice - bar.c)) * lotMultiplier : 0;
+                    const currentTotalEquity = equity + floatingPnl;
+                    peakEquity = Math.max(peakEquity, currentTotalEquity);
+                    equityData.push({x: bar.date.getTime(), y: currentTotalEquity});
+                }
+                return { tradeLog, equityData, peakEquity };
+            }
+            _calculatePerformanceStats(tradeLog, initialEquity, equityData) {
+                const returns = tradeLog.map(t => t.pnl);
+                const avgReturn = returns.length > 0 ? returns.reduce((a, b) => a + b, 0) / returns.length : 0;
+                const stdDev = returns.length > 0 ? Math.sqrt(returns.map(x => Math.pow(x - avgReturn, 2)).reduce((a, b) => a + b, 0) / returns.length) : 0;
+                const sharpeRatio = stdDev > 0 ? (avgReturn / stdDev) * Math.sqrt(252) : 0;
+                const wins = tradeLog.filter(t => t.pnl > 0);
+                const losses = tradeLog.filter(t => t.pnl <= 0);
+                const totalGrossProfit = wins.reduce((sum, t) => sum + t.pnl, 0);
+                const totalGrossLoss = losses.reduce((sum, t) => sum + t.pnl, 0);
+                const avgWin = wins.length > 0 ? totalGrossProfit / wins.length : 0;
+                const avgLoss = losses.length > 0 ? totalGrossLoss / losses.length : 0;
+                let winStreak = 0, lossStreak = 0, maxWinStreak = 0, maxLossStreak = 0;
+                tradeLog.forEach(trade => {
+                    if (trade.pnl > 0) { winStreak++; lossStreak = 0; maxWinStreak = Math.max(maxWinStreak, winStreak); }
+                    else { lossStreak++; winStreak = 0; maxLossStreak = Math.max(maxLossStreak, lossStreak); }
+                });
+                let peak = initialEquity, maxDrawdown = 0;
+                equityData.forEach(e => { peak = Math.max(peak, e.y); const drawdown = (peak - e.y) / peak; if (drawdown > maxDrawdown) maxDrawdown = drawdown; });
+                const finalEquity = equityData.length > 0 ? equityData[equityData.length - 1].y : initialEquity;
+                return { pnl: finalEquity - initialEquity, winRate: tradeLog.length > 0 ? (wins.length / tradeLog.length) * 100 : 0, profitFactor: Math.abs(totalGrossLoss) > 0 ? totalGrossProfit / Math.abs(totalGrossLoss) : Infinity, maxDrawdown, sharpeRatio, avgWin, avgLoss, maxWinStreak, maxLossStreak, };
+            }
+            updateStats(stats) {
+                document.getElementById('pnl').textContent = `${stats.pnl.toFixed(2)}`;
+                document.getElementById('pnl').className = `stat-value font-bold ${stats.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`;
+                document.getElementById('winrate').textContent = `${stats.winRate.toFixed(2)}%`;
+                document.getElementById('trades').textContent = stats.totalTrades;
+                document.getElementById('profit-factor').textContent = stats.profitFactor === Infinity ? '∞' : stats.profitFactor.toFixed(2);
+                document.getElementById('max-drawdown').textContent = `${(stats.maxDrawdown * 100).toFixed(2)}%`;
+                document.getElementById('sharpe-ratio').textContent = stats.sharpeRatio.toFixed(2);
+                document.getElementById('avg-win-loss').textContent = `${stats.avgWin.toFixed(2)} / ${Math.abs(stats.avgLoss).toFixed(2)}`;
+            }
+            populateTradeLog(tradeLog) {
+                if (tradeLog.length === 0) { DOMElements.tradeLogContainer.innerHTML = '<p class="text-gray-500">No trades to display.</p>'; return; }
+                const tableHeader = `<thead class="sticky top-0 bg-gray-800"><tr><th class="p-1 text-left">Direction</th><th class="p-1 text-left">Lots</th><th class="p-1 text-right">P/L ($)</th></tr></thead>`;
+                const tableBody = [...tradeLog].reverse().map(trade => `
+                    <tr class="border-t border-gray-700 hover:bg-gray-700/50">
+                        <td class="p-1">${trade.direction} @ ${trade.entryPrice.toFixed(4)}</td>
+                        <td class="p-1">${trade.lotSize}</td>
+                        <td class="p-1 text-right ${trade.pnl >= 0 ? 'text-green-400' : 'text-red-400'}">${trade.pnl.toFixed(2)}</td>
+                    </tr>`).join('');
+                DOMElements.tradeLogContainer.innerHTML = `<table class="w-full">${tableHeader}<tbody>${tableBody}</tbody></table>`;
+            }
+        }
+        document.addEventListener('DOMContentLoaded', () => { new ForexArchitect(); });
+    </script>
+</body>
+</html>
+
+
