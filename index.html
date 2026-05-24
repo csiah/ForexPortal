@@ -1,1 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Food Lovers Map</title>
 
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #22263a;
+      --border: #2d3148;
+      --accent: #f97316;
+      --accent-dim: rgba(249,115,22,0.15);
+      --text: #e8eaf0;
+      --muted: #7b82a0;
+      --danger: #ef4444;
+      --radius: 10px;
+      --sidebar: 340px;
+
+      --cat-restaurant: #f97316;
+      --cat-cafe: #8b5cf6;
+      --cat-street: #10b981;
+      --cat-bakery: #f59e0b;
+      --cat-bar: #3b82f6;
+      --cat-other: #ec4899;
+    }
+
+    body {
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    /* ─── Sidebar ─── */
+    #sidebar {
+      width: var(--sidebar);
+      min-width: var(--sidebar);
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #sidebar-header {
+      padding: 20px 18px 14px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    #sidebar-header h1 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #sidebar-header p {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    /* ─── Tabs ─── */
+    #tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 10px 0;
+      text-align: center;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      color: var(--muted);
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    /* ─── Tab panels ─── */
+    .tab-panel { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+    .tab-panel.active { display: flex; }
+
+    /* ─── Add Form ─── */
+    #add-panel {
+      padding: 16px;
+      gap: 12px;
+      overflow-y: auto;
+    }
+
+    .hint-box {
+      background: var(--accent-dim);
+      border: 1px solid rgba(249,115,22,0.3);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      font-size: 0.77rem;
+      color: var(--accent);
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .hint-box span { flex: 1; }
+
+    label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    input[type="text"],
+    input[type="number"],
+    select,
+    textarea {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 0.875rem;
+      padding: 9px 12px;
+      outline: none;
+      transition: border-color 0.15s;
+      font-family: inherit;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--accent);
+    }
+
+    textarea { resize: vertical; min-height: 72px; }
+
+    select option { background: var(--surface2); }
+
+    /* Star rating */
+    #star-row {
+      display: flex;
+      gap: 6px;
+    }
+
+    .star {
+      font-size: 1.4rem;
+      cursor: pointer;
+      color: var(--border);
+      transition: color 0.1s, transform 0.1s;
+      user-select: none;
+    }
+
+    .star.lit { color: #facc15; }
+    .star:hover { transform: scale(1.2); }
+
+    /* Coord display */
+    #coord-display {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 12px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      font-family: monospace;
+    }
+
+    #coord-display.has-coord { color: var(--text); border-color: var(--accent); }
+
+    .btn {
+      width: 100%;
+      padding: 10px;
+      border-radius: var(--radius);
+      border: none;
+      font-weight: 700;
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+
+    .btn:active { transform: scale(0.98); }
+
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { opacity: 0.88; }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+    .btn-ghost {
+      background: var(--surface2);
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+
+    .btn-ghost:hover { color: var(--text); }
+
+    /* ─── List panel ─── */
+    #list-panel { overflow: hidden; }
+
+    #list-controls {
+      padding: 12px 16px;
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    #list-controls input { flex: 1; }
+
+    #list-controls select { width: 130px; flex-shrink: 0; }
+
+    #location-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 10px;
+    }
+
+    #location-list::-webkit-scrollbar { width: 4px; }
+    #location-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .location-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 13px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      position: relative;
+    }
+
+    .location-card:hover { border-color: var(--accent); background: #272b40; }
+    .location-card.selected { border-color: var(--accent); background: var(--accent-dim); }
+
+    .card-top {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .cat-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-top: 4px;
+      flex-shrink: 0;
+    }
+
+    .card-name {
+      font-weight: 600;
+      font-size: 0.875rem;
+      flex: 1;
+      line-height: 1.3;
+    }
+
+    .card-delete {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 0 2px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .card-delete:hover { color: var(--danger); }
+
+    .card-meta {
+      margin-top: 5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .card-cat {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 2px 7px;
+      border-radius: 20px;
+      background: rgba(255,255,255,0.06);
+    }
+
+    .card-stars {
+      font-size: 0.7rem;
+      color: #facc15;
+    }
+
+    .card-notes {
+      margin-top: 5px;
+      font-size: 0.75rem;
+      color: var(--muted);
+      line-height: 1.4;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    #empty-state .big { font-size: 2.5rem; margin-bottom: 10px; }
+
+    /* ─── Map ─── */
+    #map {
+      flex: 1;
+      height: 100vh;
+    }
+
+    /* ─── Leaflet popup custom ─── */
+    .leaflet-popup-content-wrapper {
+      background: var(--surface) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: var(--radius) !important;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.5) !important;
+      color: var(--text) !important;
+    }
+
+    .leaflet-popup-tip { background: var(--surface) !important; }
+
+    .popup-name { font-weight: 700; font-size: 0.95rem; margin-bottom: 3px; }
+    .popup-cat { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; color: var(--muted); }
+    .popup-stars { color: #facc15; font-size: 0.8rem; margin: 3px 0; }
+    .popup-notes { font-size: 0.78rem; color: var(--muted); margin-top: 4px; }
+
+    /* ─── Toast ─── */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 16px;
+      font-size: 0.82rem;
+      color: var(--text);
+      z-index: 9999;
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 0.25s, transform 0.25s;
+    }
+
+    #toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* ─── Responsive ─── */
+    @media (max-width: 640px) {
+      body { flex-direction: column; }
+      #sidebar { width: 100%; min-width: 0; height: 45vh; border-right: none; border-bottom: 1px solid var(--border); }
+      #map { height: 55vh; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ─── Sidebar ─── -->
+<aside id="sidebar">
+  <div id="sidebar-header">
+    <h1>🍜 Food Lovers Map</h1>
+    <p>Click the map to pin a spot, then save it below.</p>
+  </div>
+
+  <div id="tabs">
+    <div class="tab active" data-tab="add">+ Add Spot</div>
+    <div class="tab" data-tab="list">My Spots (<span id="spot-count">0</span>)</div>
+  </div>
+
+  <!-- Add panel -->
+  <div id="add-panel" class="tab-panel active">
+    <div class="hint-box">
+      <span>Click anywhere on the map to drop a pin, then fill in the details.</span>
+    </div>
+
+    <div>
+      <label>Location Name *</label>
+      <input type="text" id="input-name" placeholder="e.g. Aunty Kim's Noodles" maxlength="80" />
+    </div>
+
+    <div>
+      <label>Category</label>
+      <select id="input-cat">
+        <option value="restaurant">Restaurant</option>
+        <option value="cafe">Cafe</option>
+        <option value="street">Street Food</option>
+        <option value="bakery">Bakery</option>
+        <option value="bar">Bar / Pub</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+
+    <div>
+      <label>Rating</label>
+      <div id="star-row">
+        <span class="star" data-val="1">&#9733;</span>
+        <span class="star" data-val="2">&#9733;</span>
+        <span class="star" data-val="3">&#9733;</span>
+        <span class="star" data-val="4">&#9733;</span>
+        <span class="star" data-val="5">&#9733;</span>
+      </div>
+    </div>
+
+    <div>
+      <label>Notes</label>
+      <textarea id="input-notes" placeholder="Must-try dishes, price range, vibes…"></textarea>
+    </div>
+
+    <div>
+      <label>Pinned Location</label>
+      <div id="coord-display">No pin dropped yet — click the map</div>
+    </div>
+
+    <button class="btn btn-primary" id="btn-save" disabled>Save Spot</button>
+    <button class="btn btn-ghost" id="btn-clear">Clear Form</button>
+  </div>
+
+  <!-- List panel -->
+  <div id="list-panel" class="tab-panel">
+    <div id="list-controls">
+      <input type="text" id="search-input" placeholder="Search spots…" />
+      <select id="filter-cat">
+        <option value="">All</option>
+        <option value="restaurant">Restaurant</option>
+        <option value="cafe">Cafe</option>
+        <option value="street">Street Food</option>
+        <option value="bakery">Bakery</option>
+        <option value="bar">Bar / Pub</option>
+        <option value="other">Other</option>
+      </select>
+    </div>
+    <div id="location-list"></div>
+  </div>
+</aside>
+
+<!-- ─── Map ─── -->
+<div id="map"></div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+// ─── State ───────────────────────────────────────────────────────────────────
+const STORAGE_KEY = 'food_lovers_spots';
+let spots = [];
+let pendingLatLng = null;
+let selectedRating = 0;
+let markers = {};       // id -> leaflet marker
+let selectedId = null;
+let pendingMarker = null;
+
+// ─── Load ─────────────────────────────────────────────────────────────────────
+try {
+  spots = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+} catch { spots = []; }
+
+// ─── Category config ─────────────────────────────────────────────────────────
+const CAT = {
+  restaurant: { label: 'Restaurant', color: '#f97316', emoji: '🍽️' },
+  cafe:       { label: 'Cafe',       color: '#8b5cf6', emoji: '☕' },
+  street:     { label: 'Street Food',color: '#10b981', emoji: '🥢' },
+  bakery:     { label: 'Bakery',     color: '#f59e0b', emoji: '🥐' },
+  bar:        { label: 'Bar / Pub',  color: '#3b82f6', emoji: '🍺' },
+  other:      { label: 'Other',      color: '#ec4899', emoji: '📍' },
+};
+
+function catColor(cat) { return (CAT[cat] || CAT.other).color; }
+function catEmoji(cat) { return (CAT[cat] || CAT.other).emoji; }
+function catLabel(cat) { return (CAT[cat] || CAT.other).label; }
+
+// ─── Map setup ───────────────────────────────────────────────────────────────
+const map = L.map('map', { zoomControl: true }).setView([20, 0], 2);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+  subdomains: 'abcd',
+  maxZoom: 19
+}).addTo(map);
+
+// ─── Marker factory ──────────────────────────────────────────────────────────
+function makeIcon(cat, big = false) {
+  const size = big ? 38 : 32;
+  const color = catColor(cat);
+  const emoji = catEmoji(cat);
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size + 8}" viewBox="0 0 ${size} ${size + 8}">
+      <circle cx="${size/2}" cy="${size/2}" r="${size/2 - 1}" fill="${color}" stroke="white" stroke-width="2"/>
+      <text x="${size/2}" y="${size/2 + 5}" text-anchor="middle" font-size="${size * 0.45}">${emoji}</text>
+      <polygon points="${size/2 - 5},${size - 2} ${size/2 + 5},${size - 2} ${size/2},${size + 7}" fill="${color}"/>
+    </svg>`;
+  return L.divIcon({
+    html: svg,
+    className: '',
+    iconSize: [size, size + 8],
+    iconAnchor: [size / 2, size + 8],
+    popupAnchor: [0, -(size + 8)]
+  });
+}
+
+function makePendingIcon() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40">
+      <circle cx="16" cy="16" r="15" fill="#f97316" stroke="white" stroke-width="2" opacity="0.7"/>
+      <text x="16" y="21" text-anchor="middle" font-size="14">📌</text>
+      <polygon points="11,30 21,30 16,39" fill="#f97316" opacity="0.7"/>
+    </svg>`;
+  return L.divIcon({ html: svg, className: '', iconSize: [32, 40], iconAnchor: [16, 40], popupAnchor: [0, -40] });
+}
+
+// ─── Map click → pending pin ──────────────────────────────────────────────────
+map.on('click', (e) => {
+  pendingLatLng = e.latlng;
+
+  if (pendingMarker) pendingMarker.remove();
+  pendingMarker = L.marker(pendingLatLng, { icon: makePendingIcon() })
+    .addTo(map)
+    .bindPopup('Pin dropped! Fill in details and save.')
+    .openPopup();
+
+  coordDisplay.textContent = `Lat: ${pendingLatLng.lat.toFixed(5)}, Lng: ${pendingLatLng.lng.toFixed(5)}`;
+  coordDisplay.classList.add('has-coord');
+  updateSaveBtn();
+  switchTab('add');
+});
+
+// ─── Stars ───────────────────────────────────────────────────────────────────
+const stars = document.querySelectorAll('.star');
+
+stars.forEach(star => {
+  star.addEventListener('click', () => {
+    selectedRating = +star.dataset.val;
+    renderStars();
+  });
+  star.addEventListener('mouseover', () => highlightStars(+star.dataset.val));
+  star.addEventListener('mouseout', renderStars);
+});
+
+function highlightStars(n) {
+  stars.forEach(s => s.classList.toggle('lit', +s.dataset.val <= n));
+}
+
+function renderStars(n = selectedRating) {
+  stars.forEach(s => s.classList.toggle('lit', +s.dataset.val <= n));
+}
+
+// ─── Save / Clear ─────────────────────────────────────────────────────────────
+const inputName = document.getElementById('input-name');
+const inputCat  = document.getElementById('input-cat');
+const inputNotes = document.getElementById('input-notes');
+const coordDisplay = document.getElementById('coord-display');
+const btnSave = document.getElementById('btn-save');
+const btnClear = document.getElementById('btn-clear');
+
+inputName.addEventListener('input', updateSaveBtn);
+
+function updateSaveBtn() {
+  btnSave.disabled = !(inputName.value.trim() && pendingLatLng);
+}
+
+btnSave.addEventListener('click', () => {
+  const spot = {
+    id: Date.now().toString(),
+    name: inputName.value.trim(),
+    cat: inputCat.value,
+    rating: selectedRating,
+    notes: inputNotes.value.trim(),
+    lat: pendingLatLng.lat,
+    lng: pendingLatLng.lng,
+    createdAt: Date.now(),
+  };
+
+  spots.unshift(spot);
+  save();
+  addMarker(spot);
+  renderList();
+  clearForm();
+  showToast(`${catEmoji(spot.cat)} "${spot.name}" saved!`);
+  switchTab('list');
+  selectSpot(spot.id);
+});
+
+btnClear.addEventListener('click', clearForm);
+
+function clearForm() {
+  inputName.value = '';
+  inputNotes.value = '';
+  inputCat.value = 'restaurant';
+  selectedRating = 0;
+  renderStars();
+  pendingLatLng = null;
+  coordDisplay.textContent = 'No pin dropped yet — click the map';
+  coordDisplay.classList.remove('has-coord');
+  if (pendingMarker) { pendingMarker.remove(); pendingMarker = null; }
+  updateSaveBtn();
+}
+
+// ─── Markers ─────────────────────────────────────────────────────────────────
+function addMarker(spot) {
+  const m = L.marker([spot.lat, spot.lng], { icon: makeIcon(spot.cat) })
+    .addTo(map)
+    .bindPopup(popupHtml(spot));
+  m.on('click', () => {
+    selectSpot(spot.id);
+    switchTab('list');
+  });
+  markers[spot.id] = m;
+}
+
+function popupHtml(spot) {
+  const stars = spot.rating ? '★'.repeat(spot.rating) + '☆'.repeat(5 - spot.rating) : '—';
+  return `
+    <div class="popup-name">${catEmoji(spot.cat)} ${escHtml(spot.name)}</div>
+    <div class="popup-cat">${catLabel(spot.cat)}</div>
+    <div class="popup-stars">${stars}</div>
+    ${spot.notes ? `<div class="popup-notes">${escHtml(spot.notes)}</div>` : ''}`;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── List rendering ───────────────────────────────────────────────────────────
+const locationList = document.getElementById('location-list');
+const searchInput  = document.getElementById('search-input');
+const filterCat    = document.getElementById('filter-cat');
+const spotCount    = document.getElementById('spot-count');
+
+searchInput.addEventListener('input', renderList);
+filterCat.addEventListener('change', renderList);
+
+function renderList() {
+  const q = searchInput.value.toLowerCase();
+  const cat = filterCat.value;
+
+  const filtered = spots.filter(s => {
+    const matchCat = !cat || s.cat === cat;
+    const matchQ   = !q || s.name.toLowerCase().includes(q) || (s.notes || '').toLowerCase().includes(q);
+    return matchCat && matchQ;
+  });
+
+  spotCount.textContent = spots.length;
+
+  if (filtered.length === 0) {
+    locationList.innerHTML = `<div id="empty-state">
+      <div class="big">🍽️</div>
+      ${spots.length === 0 ? 'No spots yet.<br>Click the map to add your first!' : 'No matches found.'}
+    </div>`;
+    return;
+  }
+
+  locationList.innerHTML = filtered.map(s => {
+    const starStr = s.rating ? '★'.repeat(s.rating) : '';
+    const color = catColor(s.cat);
+    return `
+      <div class="location-card ${selectedId === s.id ? 'selected' : ''}" data-id="${s.id}">
+        <div class="card-top">
+          <div class="cat-dot" style="background:${color}"></div>
+          <div class="card-name">${escHtml(s.name)}</div>
+          <button class="card-delete" data-del="${s.id}" title="Delete">✕</button>
+        </div>
+        <div class="card-meta">
+          <span class="card-cat" style="color:${color}">${catLabel(s.cat)}</span>
+          ${starStr ? `<span class="card-stars">${starStr}</span>` : ''}
+        </div>
+        ${s.notes ? `<div class="card-notes">${escHtml(s.notes)}</div>` : ''}
+      </div>`;
+  }).join('');
+
+  // Events
+  locationList.querySelectorAll('.location-card').forEach(card => {
+    card.addEventListener('click', (e) => {
+      if (e.target.dataset.del) return;
+      selectSpot(card.dataset.id);
+    });
+  });
+
+  locationList.querySelectorAll('.card-delete').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteSpot(btn.dataset.del);
+    });
+  });
+}
+
+function selectSpot(id) {
+  selectedId = id;
+  renderList();
+
+  const m = markers[id];
+  if (m) {
+    map.setView(m.getLatLng(), Math.max(map.getZoom(), 14), { animate: true });
+    m.openPopup();
+  }
+
+  // Scroll card into view
+  const card = locationList.querySelector(`[data-id="${id}"]`);
+  if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function deleteSpot(id) {
+  if (!confirm('Remove this spot?')) return;
+  spots = spots.filter(s => s.id !== id);
+  save();
+  if (markers[id]) { markers[id].remove(); delete markers[id]; }
+  if (selectedId === id) selectedId = null;
+  renderList();
+  showToast('Spot removed.');
+}
+
+// ─── Persistence ─────────────────────────────────────────────────────────────
+function save() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(spots));
+}
+
+// ─── Tabs ─────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+});
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === name + '-panel'));
+}
+
+// ─── Toast ───────────────────────────────────────────────────────────────────
+let toastTimer;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ─── Boot ────────────────────────────────────────────────────────────────────
+spots.forEach(addMarker);
+renderList();
+</script>
+</body>
+</html>
